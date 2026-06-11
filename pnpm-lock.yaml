@@ -136,7 +136,11 @@ importers:
         specifier: 3.1.0
         version: 3.1.0
 
-  lib/api-zod: {}
+  lib/api-zod:
+    dependencies:
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
 
   lib/db: {}
 
