@@ -3,14 +3,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, ShoppingBag, Package, MessageSquare, TrendingUp,
   RefreshCw, Trash2, Check, ChevronDown, X, AlertCircle, Boxes,
-  DollarSign, Users, Mail, ArrowUpRight, Edit2, Save, BarChart3,
+  DollarSign, Users, Mail, ArrowUpRight, Edit2, Save, BarChart3, Car,
 } from "lucide-react";
 import { products } from "../lib/data";
+import { carListings, type CarListing } from "../lib/carData";
 import { formatZAR } from "../lib/currency";
 
 const API = (import.meta.env.VITE_API_URL ?? "") + "/api";
 
-type Tab = "dashboard" | "orders" | "inventory" | "messages" | "analytics";
+type Tab = "dashboard" | "orders" | "inventory" | "messages" | "analytics" | "cars";
 
 const STATUS_COLOURS: Record<string, string> = {
   pending:    "bg-yellow-100 text-yellow-800",
@@ -538,6 +539,239 @@ function Analytics() {
   );
 }
 
+// ── Car Management tab ────────────────────────────────────────────────────────
+const CAR_STORAGE_KEY = "mcs_car_admin";
+
+interface CarOverride {
+  status: "available" | "sold" | "reserved";
+  featured: boolean;
+  notes: string;
+  customPrice: number | null;
+}
+
+function defaultOverride(): CarOverride {
+  return { status: "available", featured: false, notes: "", customPrice: null };
+}
+
+function loadOverrides(): Record<string, CarOverride> {
+  try { return JSON.parse(localStorage.getItem(CAR_STORAGE_KEY) ?? "{}"); } catch { return {}; }
+}
+
+function saveOverrides(data: Record<string, CarOverride>) {
+  localStorage.setItem(CAR_STORAGE_KEY, JSON.stringify(data));
+}
+
+const CAR_STATUS_COLOURS: Record<string, string> = {
+  available: "bg-green-100 text-green-800",
+  sold:      "bg-red-100 text-red-800",
+  reserved:  "bg-yellow-100 text-yellow-800",
+};
+
+const CONDITION_COLOURS: Record<string, string> = {
+  "New":       "bg-blue-100 text-blue-800",
+  "Pre-Owned": "bg-purple-100 text-purple-800",
+  "Demo":      "bg-orange-100 text-orange-800",
+};
+
+function CarManagement() {
+  const [overrides, setOverrides] = useState<Record<string, CarOverride>>(loadOverrides);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editVals, setEditVals] = useState<CarOverride>(defaultOverride());
+  const [filter, setFilter] = useState<"all" | "available" | "sold" | "reserved">("all");
+
+  const persist = (next: Record<string, CarOverride>) => { setOverrides(next); saveOverrides(next); };
+
+  const getOverride = (id: string): CarOverride => overrides[id] ?? defaultOverride();
+
+  const startEdit = (car: CarListing) => {
+    setEditing(car.id);
+    setEditVals({ ...getOverride(car.id) });
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    persist({ ...overrides, [editing]: { ...editVals } });
+    setEditing(null);
+  };
+
+  const quickStatus = (id: string, status: CarOverride["status"]) => {
+    const cur = getOverride(id);
+    persist({ ...overrides, [id]: { ...cur, status } });
+  };
+
+  const toggleFeatured = (id: string) => {
+    const cur = getOverride(id);
+    persist({ ...overrides, [id]: { ...cur, featured: !cur.featured } });
+  };
+
+  const filtered = carListings.filter((c) => {
+    if (filter === "all") return true;
+    return getOverride(c.id).status === filter;
+  });
+
+  const counts = {
+    all: carListings.length,
+    available: carListings.filter(c => getOverride(c.id).status === "available").length,
+    sold: carListings.filter(c => getOverride(c.id).status === "sold").length,
+    reserved: carListings.filter(c => getOverride(c.id).status === "reserved").length,
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        {(["all","available","sold","reserved"] as const).map((f) => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-4 py-2 text-xs font-bold rounded-xl border-2 transition-colors capitalize ${filter === f ? "bg-[hsl(222,62%,28%)] text-white border-[hsl(222,62%,28%)]" : "border-border hover:bg-muted"}`}>
+            {f} <span className="ml-1 opacity-60">({counts[f]})</span>
+          </button>
+        ))}
+        <p className="ml-auto text-xs text-muted-foreground">Changes saved to browser</p>
+      </div>
+
+      {/* Car table */}
+      <div className="bg-white border-2 border-border rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/40 border-b-2 border-border">
+                <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Vehicle</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Condition</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Price</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Status</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Featured</th>
+                <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Notes</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((car, i) => {
+                const ov = getOverride(car.id);
+                const isEditing = editing === car.id;
+                return (
+                  <tr key={car.id} className={`border-b border-border/50 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                    {/* Vehicle */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <img src={car.image} alt={car.make} className="w-12 h-9 rounded-lg object-cover flex-shrink-0" />
+                        <div>
+                          <p className="font-black text-xs text-[hsl(222,62%,28%)]">{car.year} {car.make} {car.model}</p>
+                          <p className="text-[10px] text-muted-foreground">{car.variant}</p>
+                          <p className="text-[10px] text-muted-foreground">{car.fuel} · {car.transmission} · {car.location}</p>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Condition */}
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${CONDITION_COLOURS[car.condition] ?? "bg-gray-100"}`}>
+                        {car.condition}
+                      </span>
+                      {car.mileage > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">{car.mileage.toLocaleString()} km</p>}
+                    </td>
+
+                    {/* Price */}
+                    <td className="px-4 py-3 text-center">
+                      {isEditing ? (
+                        <input type="number" min={0} value={editVals.customPrice ?? car.price}
+                          onChange={(e) => setEditVals(v => ({ ...v, customPrice: +e.target.value }))}
+                          className="w-28 border-2 border-[hsl(222,62%,28%)] rounded-lg px-2 py-1 text-xs text-center focus:outline-none" />
+                      ) : (
+                        <div>
+                          <p className="font-black text-xs text-[hsl(222,62%,28%)]">{formatZAR(ov.customPrice ?? car.price)}</p>
+                          {ov.customPrice && ov.customPrice !== car.price && (
+                            <p className="text-[10px] text-muted-foreground line-through">{formatZAR(car.price)}</p>
+                          )}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Status */}
+                    <td className="px-4 py-3 text-center">
+                      {isEditing ? (
+                        <select value={editVals.status} onChange={(e) => setEditVals(v => ({ ...v, status: e.target.value as CarOverride["status"] }))}
+                          className="border-2 border-border rounded-lg px-2 py-1 text-xs focus:outline-none bg-white">
+                          <option value="available">Available</option>
+                          <option value="sold">Sold</option>
+                          <option value="reserved">Reserved</option>
+                        </select>
+                      ) : (
+                        <select value={ov.status} onChange={(e) => quickStatus(car.id, e.target.value as CarOverride["status"])}
+                          className={`text-[10px] font-bold px-2 py-1 rounded-full border-0 cursor-pointer ${CAR_STATUS_COLOURS[ov.status]}`}>
+                          <option value="available">Available</option>
+                          <option value="sold">Sold</option>
+                          <option value="reserved">Reserved</option>
+                        </select>
+                      )}
+                    </td>
+
+                    {/* Featured */}
+                    <td className="px-4 py-3 text-center">
+                      {isEditing ? (
+                        <input type="checkbox" checked={editVals.featured}
+                          onChange={(e) => setEditVals(v => ({ ...v, featured: e.target.checked }))}
+                          className="w-4 h-4 accent-[hsl(86,72%,45%)]" />
+                      ) : (
+                        <button onClick={() => toggleFeatured(car.id)}
+                          className={`text-xs font-bold transition-colors ${ov.featured ? "text-[hsl(86,72%,38%)]" : "text-muted-foreground hover:text-foreground"}`}>
+                          {ov.featured ? "★ Yes" : "☆ No"}
+                        </button>
+                      )}
+                    </td>
+
+                    {/* Notes */}
+                    <td className="px-4 py-3 max-w-[160px]">
+                      {isEditing ? (
+                        <input type="text" value={editVals.notes} placeholder="Internal notes…"
+                          onChange={(e) => setEditVals(v => ({ ...v, notes: e.target.value }))}
+                          className="w-full border-2 border-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground truncate">{ov.notes || "—"}</p>
+                      )}
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-4 py-3">
+                      {isEditing ? (
+                        <div className="flex gap-1">
+                          <button onClick={saveEdit} className="p-1.5 bg-[hsl(86,72%,45%)] text-white rounded-lg hover:bg-[hsl(86,72%,38%)]">
+                            <Save className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => setEditing(null)} className="p-1.5 border border-border rounded-lg hover:bg-muted">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => startEdit(car)} className="p-1.5 border border-border rounded-lg hover:bg-muted transition-colors">
+                          <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Summary row */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Available", value: counts.available, colour: "border-green-200 bg-green-50 text-green-800" },
+          { label: "Reserved",  value: counts.reserved,  colour: "border-yellow-200 bg-yellow-50 text-yellow-800" },
+          { label: "Sold",      value: counts.sold,      colour: "border-red-200 bg-red-50 text-red-800" },
+        ].map((s) => (
+          <div key={s.label} className={`border-2 rounded-2xl p-4 text-center ${s.colour}`}>
+            <p className="text-2xl font-black">{s.value}</p>
+            <p className="text-xs font-bold uppercase tracking-widest mt-0.5">{s.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function Loader() {
   return (
@@ -563,6 +797,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard",  label: "Dashboard",  icon: <LayoutDashboard className="w-4 h-4" /> },
   { id: "orders",     label: "Orders",     icon: <ShoppingBag className="w-4 h-4" /> },
   { id: "inventory",  label: "Inventory",  icon: <Boxes className="w-4 h-4" /> },
+  { id: "cars",       label: "Cars",       icon: <Car className="w-4 h-4" /> },
   { id: "messages",   label: "Messages",   icon: <MessageSquare className="w-4 h-4" /> },
   { id: "analytics",  label: "Analytics",  icon: <BarChart3 className="w-4 h-4" /> },
 ];
@@ -618,6 +853,7 @@ export function AdminPanel() {
             {tab === "dashboard"  && <Dashboard />}
             {tab === "orders"     && <Orders />}
             {tab === "inventory"  && <Inventory />}
+            {tab === "cars"       && <CarManagement />}
             {tab === "messages"   && <Messages />}
             {tab === "analytics"  && <Analytics />}
           </motion.div>
