@@ -2,9 +2,11 @@ import pg from "pg";
 
 const { Pool } = pg;
 
+const connectionString = process.env.MCSPENCER_DB_URL ?? process.env.DATABASE_URL;
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+  connectionString,
+  ssl: false,
   max: 10,
   idleTimeoutMillis: 30000,
 });
