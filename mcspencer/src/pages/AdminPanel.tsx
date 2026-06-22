@@ -4,6 +4,7 @@ import {
   LayoutDashboard, ShoppingBag, Package, MessageSquare, TrendingUp,
   RefreshCw, Trash2, Check, ChevronDown, X, AlertCircle, Boxes,
   DollarSign, Users, Mail, ArrowUpRight, Edit2, Save, BarChart3, Car,
+  Plus, Upload, Link2,
 } from "lucide-react";
 import { products } from "../lib/data";
 import { carListings, type CarListing } from "../lib/carData";
@@ -279,123 +280,276 @@ function Orders() {
   );
 }
 
+// ── Shared: Image picker (URL or file upload) ─────────────────────────────────
+function ImagePicker({ value, onChange, label }: { value: string; onChange: (url: string) => void; label?: string }) {
+  const [mode, setMode] = useState<"url" | "file">("url");
+  return (
+    <div>
+      {label && <p className="text-xs font-bold text-[hsl(222,62%,28%)] mb-1">{label}</p>}
+      <div className="flex gap-1 mb-2">
+        <button type="button" onClick={() => setMode("url")}
+          className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border-2 flex items-center gap-1 transition-colors ${mode === "url" ? "bg-[hsl(222,62%,28%)] text-white border-[hsl(222,62%,28%)]" : "border-border hover:bg-muted"}`}>
+          <Link2 className="w-3 h-3" /> URL
+        </button>
+        <button type="button" onClick={() => setMode("file")}
+          className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border-2 flex items-center gap-1 transition-colors ${mode === "file" ? "bg-[hsl(222,62%,28%)] text-white border-[hsl(222,62%,28%)]" : "border-border hover:bg-muted"}`}>
+          <Upload className="w-3 h-3" /> File
+        </button>
+      </div>
+      {mode === "url" ? (
+        <input type="url" value={value} placeholder="https://..."
+          onChange={e => onChange(e.target.value)}
+          className="w-full border-2 border-border rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+      ) : (
+        <input type="file" accept="image/*"
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => onChange(reader.result as string);
+            reader.readAsDataURL(file);
+          }}
+          className="w-full border-2 border-border rounded-lg px-3 py-2 text-xs file:mr-2 file:text-xs file:border-0 file:bg-muted file:rounded file:px-2 file:py-0.5 file:font-bold" />
+      )}
+      {value && <img src={value} alt="" className="mt-2 w-20 h-14 object-cover rounded-lg border border-border" />}
+    </div>
+  );
+}
+
 // ── Inventory tab ─────────────────────────────────────────────────────────────
+const INV_OVERRIDES_KEY = "mcs_inv_overrides";
+const INV_ADDITIONS_KEY = "mcs_inv_additions";
+
+interface InvOverride { name?: string; price?: number; description?: string; image?: string; details?: string[]; }
+interface InvAddition {
+  id: string; name: string; price: number; category: string; description: string;
+  image: string; details: string[]; stock_count: number; is_featured: boolean; is_active: boolean;
+}
+
+function loadInvOverrides(): Record<string, InvOverride> { try { return JSON.parse(localStorage.getItem(INV_OVERRIDES_KEY) ?? "{}"); } catch { return {}; } }
+function loadInvAdditions(): InvAddition[] { try { return JSON.parse(localStorage.getItem(INV_ADDITIONS_KEY) ?? "[]"); } catch { return []; } }
+function saveInvOverrides(d: Record<string, InvOverride>) { localStorage.setItem(INV_OVERRIDES_KEY, JSON.stringify(d)); }
+function saveInvAdditions(d: InvAddition[]) { localStorage.setItem(INV_ADDITIONS_KEY, JSON.stringify(d)); }
+
 function Inventory() {
   const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editVals, setEditVals] = useState<{ stock_count: number; is_featured: boolean; is_active: boolean }>({
-    stock_count: 0, is_featured: false, is_active: true,
-  });
+  const [overrides, setOverrides] = useState<Record<string, InvOverride>>(loadInvOverrides);
+  const [additions, setAdditions] = useState<InvAddition[]>(loadInvAdditions);
+  const [modal, setModal] = useState<null | { mode: "edit" | "add"; rowId?: string }>(null);
+  const [form, setForm] = useState<any>({});
 
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const r = await fetch(`${API}/admin/inventory`);
-      setInventory(await r.json());
-    } catch { setInventory([]); }
+    try { const r = await fetch(`${API}/admin/inventory`); setInventory(await r.json()); }
+    catch { setInventory([]); }
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const startEdit = (row: any) => {
-    setEditing(row.product_id);
-    setEditVals({ stock_count: row.stock_count, is_featured: row.is_featured, is_active: row.is_active });
+  const eff = (row: any) => {
+    const prod = products.find(p => p.id === row.product_id);
+    const ov = overrides[row.product_id] ?? {};
+    return { ...prod, ...ov };
   };
 
-  const saveEdit = async () => {
-    if (!editing) return;
-    await fetch(`${API}/admin/inventory/${editing}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editVals),
-    });
-    setEditing(null);
-    load();
+  const openEdit = (row: any) => {
+    const isAddition = row._isAddition;
+    if (isAddition) {
+      const a = additions.find(x => x.id === row.product_id)!;
+      setForm({ ...a, _isAddition: true });
+    } else {
+      const p = eff(row);
+      setForm({
+        id: row.product_id, name: p.name ?? "", price: p.price ?? 0, category: p.category ?? "Electronics",
+        description: p.description ?? "", image: p.image ?? "", details: p.details ?? [],
+        stock_count: row.stock_count, is_featured: row.is_featured, is_active: row.is_active, _isAddition: false,
+      });
+    }
+    setModal({ mode: "edit", rowId: row.product_id });
+  };
+
+  const openAdd = () => {
+    setForm({ id: `custom_${Date.now()}`, name: "", price: 0, category: "Electronics", description: "", image: "", details: [], stock_count: 10, is_featured: false, is_active: true, _isAddition: true });
+    setModal({ mode: "add" });
+  };
+
+  const saveModal = async () => {
+    if (form._isAddition) {
+      const next = modal?.mode === "add"
+        ? [...additions, { ...form }]
+        : additions.map((a: InvAddition) => a.id === form.id ? { ...form } : a);
+      setAdditions(next); saveInvAdditions(next);
+    } else {
+      const newOv = { ...overrides, [form.id]: { name: form.name, price: form.price, description: form.description, image: form.image, details: form.details } };
+      setOverrides(newOv); saveInvOverrides(newOv);
+      await fetch(`${API}/admin/inventory/${form.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stock_count: form.stock_count, is_featured: form.is_featured, is_active: form.is_active }),
+      }).catch(() => {});
+      load();
+    }
+    setModal(null);
+  };
+
+  const deleteAddition = (id: string) => {
+    if (!confirm("Remove this product?")) return;
+    const next = additions.filter(a => a.id !== id);
+    setAdditions(next); saveInvAdditions(next);
   };
 
   if (loading) return <Loader />;
 
+  const allRows = [
+    ...inventory.map(r => ({ ...r, _isAddition: false })),
+    ...additions.map(a => ({ product_id: a.id, stock_count: a.stock_count, is_featured: a.is_featured, is_active: a.is_active, _isAddition: true })),
+  ];
+
   return (
-    <div className="bg-white border-2 border-border rounded-2xl overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-muted/40 border-b-2 border-border">
-              <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Product</th>
-              <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Stock</th>
-              <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Featured</th>
-              <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Active</th>
-              <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Price</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {inventory.map((row, i) => {
-              const prod = products.find((p) => p.id === row.product_id);
-              const isEditing = editing === row.product_id;
-              return (
-                <tr key={row.product_id} className={`border-b border-border/50 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {prod && <img src={prod.image} alt={prod.name} className="w-9 h-9 rounded-lg object-cover" />}
-                      <div>
-                        <p className="font-semibold text-xs text-[hsl(222,62%,28%)] line-clamp-1">{prod?.name ?? `ID ${row.product_id}`}</p>
-                        <p className="text-[10px] text-muted-foreground">{prod?.category}</p>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">{allRows.length} products</p>
+        <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2 rounded-xl btn-primary text-sm font-bold">
+          <Plus className="w-4 h-4" /> Add New Stock
+        </button>
+      </div>
+
+      <div className="bg-white border-2 border-border rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/40 border-b-2 border-border">
+                <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Product</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Stock</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Featured</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Active</th>
+                <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Price</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {allRows.map((row, i) => {
+                const prod = row._isAddition ? additions.find(a => a.id === row.product_id) : eff(row);
+                return (
+                  <tr key={row.product_id} className={`border-b border-border/50 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        {prod?.image && <img src={prod.image} alt={prod.name} className="w-9 h-9 rounded-lg object-cover" />}
+                        <div>
+                          <p className="font-semibold text-xs text-[hsl(222,62%,28%)] line-clamp-1">{prod?.name ?? `ID ${row.product_id}`}</p>
+                          <p className="text-[10px] text-muted-foreground">{prod?.category}{row._isAddition && <span className="ml-1 text-[hsl(86,72%,38%)] font-bold">● Custom</span>}</p>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <input
-                        type="number" min={0} value={editVals.stock_count}
-                        onChange={(e) => setEditVals((v) => ({ ...v, stock_count: +e.target.value }))}
-                        className="w-16 border-2 border-[hsl(222,62%,28%)] rounded-lg px-2 py-1 text-xs text-center focus:outline-none"
-                      />
-                    ) : (
+                    </td>
+                    <td className="px-4 py-3 text-center">
                       <span className={`font-bold text-xs px-2 py-1 rounded-full ${row.stock_count < 10 ? "bg-red-100 text-red-700" : row.stock_count < 25 ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"}`}>
                         {row.stock_count}
                       </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <input type="checkbox" checked={editVals.is_featured} onChange={(e) => setEditVals((v) => ({ ...v, is_featured: e.target.checked }))} className="w-4 h-4 accent-[hsl(86,72%,45%)]" />
-                    ) : (
-                      <span className={`text-xs font-bold ${row.is_featured ? "text-[hsl(86,72%,38%)]" : "text-muted-foreground"}`}>{row.is_featured ? "✓" : "—"}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <input type="checkbox" checked={editVals.is_active} onChange={(e) => setEditVals((v) => ({ ...v, is_active: e.target.checked }))} className="w-4 h-4 accent-[hsl(86,72%,45%)]" />
-                    ) : (
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-bold ${row.is_featured ? "text-[hsl(86,72%,38%)]" : "text-muted-foreground"}`}>{row.is_featured ? "★ Yes" : "—"}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
                       <span className={`text-xs font-bold ${row.is_active ? "text-green-600" : "text-red-500"}`}>{row.is_active ? "Active" : "Inactive"}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="text-xs font-bold text-[hsl(222,62%,28%)]">{prod ? formatZAR(prod.price) : "—"}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {isEditing ? (
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-xs font-bold text-[hsl(222,62%,28%)]">{prod?.price ? formatZAR(prod.price) : "—"}</span>
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex gap-1">
-                        <button onClick={saveEdit} className="p-1.5 bg-[hsl(86,72%,45%)] text-white rounded-lg hover:bg-[hsl(86,72%,38%)]">
-                          <Save className="w-3.5 h-3.5" />
+                        <button onClick={() => openEdit(row)} className="p-1.5 border border-border rounded-lg hover:bg-muted transition-colors">
+                          <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
                         </button>
-                        <button onClick={() => setEditing(null)} className="p-1.5 border border-border rounded-lg hover:bg-muted">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
+                        {row._isAddition && (
+                          <button onClick={() => deleteAddition(row.product_id)} className="p-1.5 border border-red-200 rounded-lg hover:bg-red-50">
+                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                          </button>
+                        )}
                       </div>
-                    ) : (
-                      <button onClick={() => startEdit(row)} className="p-1.5 border border-border rounded-lg hover:bg-muted transition-colors">
-                        <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {/* Full edit / add modal */}
+      {modal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 overflow-y-auto" onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
+          <div className="bg-white rounded-2xl border-2 border-border w-full max-w-2xl my-8 shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b-2 border-border">
+              <p className="font-black text-[hsl(222,62%,28%)] text-base">{modal.mode === "add" ? "Add New Product" : "Edit Product"}</p>
+              <button onClick={() => setModal(null)} className="p-1.5 rounded-lg hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div>
+                <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Product Name</label>
+                <input value={form.name} onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))}
+                  className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Price (ZAR)</label>
+                  <input type="number" min={0} value={form.price} onChange={e => setForm((f: any) => ({ ...f, price: +e.target.value }))}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Category</label>
+                  <select value={form.category} onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[hsl(222,62%,28%)]">
+                    {["Electronics","Renewable Energy","Car Spares","Stationery","Fashion","AgroMarket"].map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Description</label>
+                <textarea value={form.description} rows={3} onChange={e => setForm((f: any) => ({ ...f, description: e.target.value }))}
+                  className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+              </div>
+              <ImagePicker label="Main Image" value={form.image ?? ""} onChange={url => setForm((f: any) => ({ ...f, image: url }))} />
+              <div>
+                <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Bullet Points / Details</label>
+                {(form.details ?? []).map((d: string, idx: number) => (
+                  <div key={idx} className="flex gap-2 mb-1.5">
+                    <input value={d} onChange={e => setForm((f: any) => { const a = [...f.details]; a[idx] = e.target.value; return { ...f, details: a }; })}
+                      className="flex-1 border-2 border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                    <button type="button" onClick={() => setForm((f: any) => ({ ...f, details: f.details.filter((_: any, i: number) => i !== idx) }))}
+                      className="p-1.5 border border-red-200 rounded-lg hover:bg-red-50"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>
+                  </div>
+                ))}
+                <button type="button" onClick={() => setForm((f: any) => ({ ...f, details: [...(f.details ?? []), ""] }))}
+                  className="flex items-center gap-1 text-xs font-bold text-[hsl(222,62%,28%)] hover:underline mt-1">
+                  <Plus className="w-3.5 h-3.5" /> Add bullet point
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Stock Count</label>
+                  <input type="number" min={0} value={form.stock_count} onChange={e => setForm((f: any) => ({ ...f, stock_count: +e.target.value }))}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                </div>
+                <div className="flex flex-col items-center justify-center gap-1 pt-4">
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)]">Featured</label>
+                  <input type="checkbox" checked={form.is_featured} onChange={e => setForm((f: any) => ({ ...f, is_featured: e.target.checked }))} className="w-5 h-5 accent-[hsl(86,72%,45%)]" />
+                </div>
+                <div className="flex flex-col items-center justify-center gap-1 pt-4">
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)]">Active</label>
+                  <input type="checkbox" checked={form.is_active} onChange={e => setForm((f: any) => ({ ...f, is_active: e.target.checked }))} className="w-5 h-5 accent-[hsl(86,72%,45%)]" />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t-2 border-border flex justify-end gap-3">
+              <button onClick={() => setModal(null)} className="px-5 py-2 rounded-xl border-2 border-border text-sm font-bold hover:bg-muted">Cancel</button>
+              <button onClick={saveModal} className="px-5 py-2 rounded-xl btn-primary text-sm font-bold flex items-center gap-2">
+                <Save className="w-4 h-4" /> Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -541,25 +695,10 @@ function Analytics() {
 
 // ── Car Management tab ────────────────────────────────────────────────────────
 const CAR_STORAGE_KEY = "mcs_car_admin";
+const CAR_ADDITIONS_KEY = "mcs_car_additions";
 
-interface CarOverride {
-  status: "available" | "sold" | "reserved";
-  featured: boolean;
-  notes: string;
-  customPrice: number | null;
-}
-
-function defaultOverride(): CarOverride {
-  return { status: "available", featured: false, notes: "", customPrice: null };
-}
-
-function loadOverrides(): Record<string, CarOverride> {
-  try { return JSON.parse(localStorage.getItem(CAR_STORAGE_KEY) ?? "{}"); } catch { return {}; }
-}
-
-function saveOverrides(data: Record<string, CarOverride>) {
-  localStorage.setItem(CAR_STORAGE_KEY, JSON.stringify(data));
-}
+interface CarAdminMeta { status: "available" | "sold" | "reserved"; featured: boolean; notes: string; }
+interface CarExtended extends CarListing, CarAdminMeta {}
 
 const CAR_STATUS_COLOURS: Record<string, string> = {
   available: "bg-green-100 text-green-800",
@@ -573,63 +712,86 @@ const CONDITION_COLOURS: Record<string, string> = {
   "Demo":      "bg-orange-100 text-orange-800",
 };
 
+function loadCarMeta(): Record<string, CarAdminMeta> { try { return JSON.parse(localStorage.getItem(CAR_STORAGE_KEY) ?? "{}"); } catch { return {}; } }
+function loadCarAdditions(): CarExtended[] { try { return JSON.parse(localStorage.getItem(CAR_ADDITIONS_KEY) ?? "[]"); } catch { return []; } }
+function saveCarMeta(d: Record<string, CarAdminMeta>) { localStorage.setItem(CAR_STORAGE_KEY, JSON.stringify(d)); }
+function saveCarAdditions(d: CarExtended[]) { localStorage.setItem(CAR_ADDITIONS_KEY, JSON.stringify(d)); }
+
+const blankCar = (): CarExtended => ({
+  id: `custom_${Date.now()}`, make: "", model: "", variant: "",
+  year: new Date().getFullYear(), price: 0, condition: "New",
+  fuel: "Petrol", transmission: "Automatic", mileage: 0,
+  colour: "", location: "", description: "", features: [],
+  image: "", images: [], status: "available", featured: false, notes: "",
+});
+
 function CarManagement() {
-  const [overrides, setOverrides] = useState<Record<string, CarOverride>>(loadOverrides);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editVals, setEditVals] = useState<CarOverride>(defaultOverride());
+  const [meta, setMeta] = useState<Record<string, CarAdminMeta>>(loadCarMeta);
+  const [additions, setAdditions] = useState<CarExtended[]>(loadCarAdditions);
   const [filter, setFilter] = useState<"all" | "available" | "sold" | "reserved">("all");
+  const [modal, setModal] = useState<null | { isNew: boolean; originalId: string }>(null);
+  const [form, setForm] = useState<CarExtended>(blankCar);
 
-  const persist = (next: Record<string, CarOverride>) => { setOverrides(next); saveOverrides(next); };
+  const persistMeta = (n: Record<string, CarAdminMeta>) => { setMeta(n); saveCarMeta(n); };
+  const persistAdd = (n: CarExtended[]) => { setAdditions(n); saveCarAdditions(n); };
+  const getMeta = (id: string): CarAdminMeta => meta[id] ?? { status: "available", featured: false, notes: "" };
+  const isOriginal = (id: string) => carListings.some(c => c.id === id);
 
-  const getOverride = (id: string): CarOverride => overrides[id] ?? defaultOverride();
-
-  const startEdit = (car: CarListing) => {
-    setEditing(car.id);
-    setEditVals({ ...getOverride(car.id) });
-  };
-
-  const saveEdit = () => {
-    if (!editing) return;
-    persist({ ...overrides, [editing]: { ...editVals } });
-    setEditing(null);
-  };
-
-  const quickStatus = (id: string, status: CarOverride["status"]) => {
-    const cur = getOverride(id);
-    persist({ ...overrides, [id]: { ...cur, status } });
-  };
-
-  const toggleFeatured = (id: string) => {
-    const cur = getOverride(id);
-    persist({ ...overrides, [id]: { ...cur, featured: !cur.featured } });
-  };
-
-  const filtered = carListings.filter((c) => {
-    if (filter === "all") return true;
-    return getOverride(c.id).status === filter;
-  });
-
+  const allCars: CarExtended[] = [
+    ...carListings.map(c => ({ ...c, ...getMeta(c.id) })),
+    ...additions,
+  ];
+  const filtered = filter === "all" ? allCars : allCars.filter(c => c.status === filter);
   const counts = {
-    all: carListings.length,
-    available: carListings.filter(c => getOverride(c.id).status === "available").length,
-    sold: carListings.filter(c => getOverride(c.id).status === "sold").length,
-    reserved: carListings.filter(c => getOverride(c.id).status === "reserved").length,
+    all: allCars.length,
+    available: allCars.filter(c => c.status === "available").length,
+    sold: allCars.filter(c => c.status === "sold").length,
+    reserved: allCars.filter(c => c.status === "reserved").length,
   };
+
+  const openEdit = (car: CarExtended) => { setForm({ ...car }); setModal({ isNew: false, originalId: car.id }); };
+  const openAdd  = () => { setForm(blankCar()); setModal({ isNew: true, originalId: "" }); };
+
+  const saveModal = () => {
+    if (!modal) return;
+    if (modal.isNew) {
+      persistAdd([...additions, { ...form, id: `custom_${Date.now()}` }]);
+    } else if (isOriginal(modal.originalId)) {
+      persistMeta({ ...meta, [modal.originalId]: { status: form.status, featured: form.featured, notes: form.notes } });
+    } else {
+      persistAdd(additions.map(a => a.id === modal.originalId ? { ...form, id: modal.originalId } : a));
+    }
+    setModal(null);
+  };
+
+  const quickStatus = (id: string, status: CarAdminMeta["status"]) => {
+    if (isOriginal(id)) persistMeta({ ...meta, [id]: { ...getMeta(id), status } });
+    else persistAdd(additions.map(a => a.id === id ? { ...a, status } : a));
+  };
+
+  const deleteCar = (id: string) => {
+    if (!confirm("Remove this car listing?")) return;
+    persistAdd(additions.filter(a => a.id !== id));
+  };
+
+  const sf = (key: keyof CarExtended, val: any) => setForm(f => ({ ...f, [key]: val }));
 
   return (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap gap-2 items-center">
-        {(["all","available","sold","reserved"] as const).map((f) => (
+        {(["all","available","sold","reserved"] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={`px-4 py-2 text-xs font-bold rounded-xl border-2 transition-colors capitalize ${filter === f ? "bg-[hsl(222,62%,28%)] text-white border-[hsl(222,62%,28%)]" : "border-border hover:bg-muted"}`}>
             {f} <span className="ml-1 opacity-60">({counts[f]})</span>
           </button>
         ))}
-        <p className="ml-auto text-xs text-muted-foreground">Changes saved to browser</p>
+        <button onClick={openAdd} className="ml-auto flex items-center gap-2 px-4 py-2 rounded-xl btn-primary text-sm font-bold">
+          <Plus className="w-4 h-4" /> Add New Car
+        </button>
       </div>
 
-      {/* Car table */}
+      {/* Table */}
       <div className="bg-white border-2 border-border rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -640,134 +802,229 @@ function CarManagement() {
                 <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Price</th>
                 <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Status</th>
                 <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Featured</th>
-                <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-[hsl(222,62%,28%)]">Notes</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((car, i) => {
-                const ov = getOverride(car.id);
-                const isEditing = editing === car.id;
-                return (
-                  <tr key={car.id} className={`border-b border-border/50 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
-                    {/* Vehicle */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <img src={car.image} alt={car.make} className="w-12 h-9 rounded-lg object-cover flex-shrink-0" />
-                        <div>
-                          <p className="font-black text-xs text-[hsl(222,62%,28%)]">{car.year} {car.make} {car.model}</p>
-                          <p className="text-[10px] text-muted-foreground">{car.variant}</p>
-                          <p className="text-[10px] text-muted-foreground">{car.fuel} · {car.transmission} · {car.location}</p>
-                        </div>
+              {filtered.map((car, i) => (
+                <tr key={car.id} className={`border-b border-border/50 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      {car.image && <img src={car.image} alt={car.make} className="w-12 h-9 rounded-lg object-cover flex-shrink-0" />}
+                      <div>
+                        <p className="font-black text-xs text-[hsl(222,62%,28%)]">
+                          {car.year} {car.make} {car.model}
+                          {!isOriginal(car.id) && <span className="ml-1 text-[hsl(86,72%,38%)]">● Custom</span>}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">{car.variant}</p>
+                        <p className="text-[10px] text-muted-foreground">{car.fuel} · {car.transmission} · {car.location}</p>
                       </div>
-                    </td>
-
-                    {/* Condition */}
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${CONDITION_COLOURS[car.condition] ?? "bg-gray-100"}`}>
-                        {car.condition}
-                      </span>
-                      {car.mileage > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">{car.mileage.toLocaleString()} km</p>}
-                    </td>
-
-                    {/* Price */}
-                    <td className="px-4 py-3 text-center">
-                      {isEditing ? (
-                        <input type="number" min={0} value={editVals.customPrice ?? car.price}
-                          onChange={(e) => setEditVals(v => ({ ...v, customPrice: +e.target.value }))}
-                          className="w-28 border-2 border-[hsl(222,62%,28%)] rounded-lg px-2 py-1 text-xs text-center focus:outline-none" />
-                      ) : (
-                        <div>
-                          <p className="font-black text-xs text-[hsl(222,62%,28%)]">{formatZAR(ov.customPrice ?? car.price)}</p>
-                          {ov.customPrice && ov.customPrice !== car.price && (
-                            <p className="text-[10px] text-muted-foreground line-through">{formatZAR(car.price)}</p>
-                          )}
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-4 py-3 text-center">
-                      {isEditing ? (
-                        <select value={editVals.status} onChange={(e) => setEditVals(v => ({ ...v, status: e.target.value as CarOverride["status"] }))}
-                          className="border-2 border-border rounded-lg px-2 py-1 text-xs focus:outline-none bg-white">
-                          <option value="available">Available</option>
-                          <option value="sold">Sold</option>
-                          <option value="reserved">Reserved</option>
-                        </select>
-                      ) : (
-                        <select value={ov.status} onChange={(e) => quickStatus(car.id, e.target.value as CarOverride["status"])}
-                          className={`text-[10px] font-bold px-2 py-1 rounded-full border-0 cursor-pointer ${CAR_STATUS_COLOURS[ov.status]}`}>
-                          <option value="available">Available</option>
-                          <option value="sold">Sold</option>
-                          <option value="reserved">Reserved</option>
-                        </select>
-                      )}
-                    </td>
-
-                    {/* Featured */}
-                    <td className="px-4 py-3 text-center">
-                      {isEditing ? (
-                        <input type="checkbox" checked={editVals.featured}
-                          onChange={(e) => setEditVals(v => ({ ...v, featured: e.target.checked }))}
-                          className="w-4 h-4 accent-[hsl(86,72%,45%)]" />
-                      ) : (
-                        <button onClick={() => toggleFeatured(car.id)}
-                          className={`text-xs font-bold transition-colors ${ov.featured ? "text-[hsl(86,72%,38%)]" : "text-muted-foreground hover:text-foreground"}`}>
-                          {ov.featured ? "★ Yes" : "☆ No"}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${CONDITION_COLOURS[car.condition] ?? "bg-gray-100"}`}>{car.condition}</span>
+                    {car.mileage > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">{car.mileage.toLocaleString()} km</p>}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <p className="font-black text-xs text-[hsl(222,62%,28%)]">{formatZAR(car.price)}</p>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <select value={car.status} onChange={e => quickStatus(car.id, e.target.value as CarAdminMeta["status"])}
+                      className={`text-[10px] font-bold px-2 py-1 rounded-full border-0 cursor-pointer ${CAR_STATUS_COLOURS[car.status]}`}>
+                      <option value="available">Available</option>
+                      <option value="sold">Sold</option>
+                      <option value="reserved">Reserved</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-xs font-bold ${car.featured ? "text-[hsl(86,72%,38%)]" : "text-muted-foreground"}`}>{car.featured ? "★ Yes" : "☆ No"}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-1">
+                      <button onClick={() => openEdit(car)} className="p-1.5 border border-border rounded-lg hover:bg-muted transition-colors">
+                        <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                      {!isOriginal(car.id) && (
+                        <button onClick={() => deleteCar(car.id)} className="p-1.5 border border-red-200 rounded-lg hover:bg-red-50">
+                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
                         </button>
                       )}
-                    </td>
-
-                    {/* Notes */}
-                    <td className="px-4 py-3 max-w-[160px]">
-                      {isEditing ? (
-                        <input type="text" value={editVals.notes} placeholder="Internal notes…"
-                          onChange={(e) => setEditVals(v => ({ ...v, notes: e.target.value }))}
-                          className="w-full border-2 border-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[hsl(222,62%,28%)]" />
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground truncate">{ov.notes || "—"}</p>
-                      )}
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-4 py-3">
-                      {isEditing ? (
-                        <div className="flex gap-1">
-                          <button onClick={saveEdit} className="p-1.5 bg-[hsl(86,72%,45%)] text-white rounded-lg hover:bg-[hsl(86,72%,38%)]">
-                            <Save className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => setEditing(null)} className="p-1.5 border border-border rounded-lg hover:bg-muted">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button onClick={() => startEdit(car)} className="p-1.5 border border-border rounded-lg hover:bg-muted transition-colors">
-                          <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Summary row */}
+      {/* Summary */}
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: "Available", value: counts.available, colour: "border-green-200 bg-green-50 text-green-800" },
           { label: "Reserved",  value: counts.reserved,  colour: "border-yellow-200 bg-yellow-50 text-yellow-800" },
           { label: "Sold",      value: counts.sold,      colour: "border-red-200 bg-red-50 text-red-800" },
-        ].map((s) => (
+        ].map(s => (
           <div key={s.label} className={`border-2 rounded-2xl p-4 text-center ${s.colour}`}>
             <p className="text-2xl font-black">{s.value}</p>
             <p className="text-xs font-bold uppercase tracking-widest mt-0.5">{s.label}</p>
           </div>
         ))}
       </div>
+
+      {/* Add / Full-Edit modal */}
+      {modal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 overflow-y-auto" onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
+          <div className="bg-white rounded-2xl border-2 border-border w-full max-w-2xl my-8 shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b-2 border-border">
+              <p className="font-black text-[hsl(222,62%,28%)] text-base">{modal.isNew ? "Add New Car" : "Edit Car Listing"}</p>
+              <button onClick={() => setModal(null)} className="p-1.5 rounded-lg hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Make / Model / Variant */}
+              <div className="grid grid-cols-3 gap-3">
+                {(["Make","Model","Variant"] as const).map(lbl => {
+                  const key = lbl.toLowerCase() as "make" | "model" | "variant";
+                  return (
+                    <div key={key}>
+                      <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">{lbl}</label>
+                      <input value={form[key]} onChange={e => sf(key, e.target.value)}
+                        className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Year / Price / Condition */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Year</label>
+                  <input type="number" value={form.year} onChange={e => sf("year", +e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Price (ZAR)</label>
+                  <input type="number" min={0} value={form.price} onChange={e => sf("price", +e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Condition</label>
+                  <select value={form.condition} onChange={e => sf("condition", e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[hsl(222,62%,28%)]">
+                    <option>New</option><option>Pre-Owned</option><option>Demo</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Fuel / Transmission / Mileage */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Fuel</label>
+                  <select value={form.fuel} onChange={e => sf("fuel", e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[hsl(222,62%,28%)]">
+                    <option>Petrol</option><option>Diesel</option><option>Hybrid</option><option>Electric</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Transmission</label>
+                  <select value={form.transmission} onChange={e => sf("transmission", e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[hsl(222,62%,28%)]">
+                    <option>Manual</option><option>Automatic</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Mileage (km)</label>
+                  <input type="number" min={0} value={form.mileage} onChange={e => sf("mileage", +e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                </div>
+              </div>
+
+              {/* Colour / Location */}
+              <div className="grid grid-cols-2 gap-3">
+                {(["Colour","Location"] as const).map(lbl => {
+                  const key = lbl.toLowerCase() as "colour" | "location";
+                  return (
+                    <div key={key}>
+                      <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">{lbl}</label>
+                      <input value={form[key]} onChange={e => sf(key, e.target.value)}
+                        className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Main Image */}
+              <ImagePicker label="Main Image" value={form.image} onChange={url => sf("image", url)} />
+
+              {/* Gallery */}
+              <div>
+                <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-2">Gallery Images (up to 3)</label>
+                <div className="space-y-3">
+                  {[0,1,2].map(idx => (
+                    <ImagePicker key={idx} label={`Gallery ${idx + 1}`}
+                      value={form.images[idx] ?? ""}
+                      onChange={url => { const imgs = [...(form.images ?? [])]; imgs[idx] = url; sf("images", imgs); }} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Description</label>
+                <textarea value={form.description} rows={3} onChange={e => sf("description", e.target.value)}
+                  className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+              </div>
+
+              {/* Features */}
+              <div>
+                <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Features / Specs</label>
+                {form.features.map((feat, idx) => (
+                  <div key={idx} className="flex gap-2 mb-1.5">
+                    <input value={feat} onChange={e => { const a = [...form.features]; a[idx] = e.target.value; sf("features", a); }}
+                      className="flex-1 border-2 border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                    <button type="button" onClick={() => sf("features", form.features.filter((_: string, i: number) => i !== idx))}
+                      className="p-1.5 border border-red-200 rounded-lg hover:bg-red-50"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>
+                  </div>
+                ))}
+                <button type="button" onClick={() => sf("features", [...form.features, ""])}
+                  className="flex items-center gap-1 text-xs font-bold text-[hsl(222,62%,28%)] hover:underline mt-1">
+                  <Plus className="w-3.5 h-3.5" /> Add feature
+                </button>
+              </div>
+
+              {/* Status / Notes / Featured */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Status</label>
+                  <select value={form.status} onChange={e => sf("status", e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[hsl(222,62%,28%)]">
+                    <option value="available">Available</option>
+                    <option value="sold">Sold</option>
+                    <option value="reserved">Reserved</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[hsl(222,62%,28%)] block mb-1">Internal Notes</label>
+                  <input value={form.notes} onChange={e => sf("notes", e.target.value)}
+                    className="w-full border-2 border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[hsl(222,62%,28%)]" />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs font-bold text-[hsl(222,62%,28%)] cursor-pointer">
+                <input type="checkbox" checked={form.featured} onChange={e => sf("featured", e.target.checked)} className="w-4 h-4 accent-[hsl(86,72%,45%)]" />
+                Mark as featured listing
+              </label>
+            </div>
+
+            <div className="px-6 py-4 border-t-2 border-border flex justify-end gap-3">
+              <button onClick={() => setModal(null)} className="px-5 py-2 rounded-xl border-2 border-border text-sm font-bold hover:bg-muted">Cancel</button>
+              <button onClick={saveModal} className="px-5 py-2 rounded-xl btn-primary text-sm font-bold flex items-center gap-2">
+                <Save className="w-4 h-4" /> {modal.isNew ? "Add Car" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
