@@ -17,6 +17,7 @@ app.use(
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (isDev && /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
       if (isDev && (origin.endsWith(".replit.dev") || origin.endsWith(".repl.co"))) return cb(null, true);
       cb(new Error(`CORS: origin ${origin} not allowed`));
     },
