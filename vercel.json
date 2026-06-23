@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "outputDirectory": "api-server/dist",
   "builds": [
     {
       "src": "api-server/api/index.ts",
