@@ -4,6 +4,9 @@ packages:
   - "mockup-sandbox"
   - "lib/*"
 
+onlyBuiltDependencies:
+  - esbuild
+
 catalog:
   "@replit/vite-plugin-cartographer": "^0.5.5"
   "@replit/vite-plugin-dev-banner": "^0.1.2"
