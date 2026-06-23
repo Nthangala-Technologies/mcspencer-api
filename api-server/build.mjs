@@ -138,10 +138,6 @@ async function buildVercelHandler() {
       "bufferutil",
       "utf-8-validate",
       "fsevents",
-      "thread-stream",
-      "pino-worker",
-      "pino-file",
-      "pino/file",
     ],
     banner: {
       js: `import { createRequire as __bannerCrReq } from 'node:module';
