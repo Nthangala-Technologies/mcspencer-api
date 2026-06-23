@@ -120,7 +120,45 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   });
 }
 
-buildAll().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function buildVercelHandler() {
+  const distDir = path.resolve(artifactDir, "dist");
+  await esbuild({
+    entryPoints: [path.resolve(artifactDir, "src/handler.ts")],
+    platform: "node",
+    bundle: true,
+    format: "esm",
+    outfile: path.resolve(distDir, "handler.mjs"),
+    logLevel: "info",
+    define: {
+      "process.env.NODE_ENV": '"production"',
+    },
+    external: [
+      "*.node",
+      "pg-native",
+      "bufferutil",
+      "utf-8-validate",
+      "fsevents",
+      "thread-stream",
+      "pino-worker",
+      "pino-file",
+      "pino/file",
+    ],
+    banner: {
+      js: `import { createRequire as __bannerCrReq } from 'node:module';
+import __bannerPath from 'node:path';
+import __bannerUrl from 'node:url';
+
+globalThis.require = __bannerCrReq(import.meta.url);
+globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
+globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
+    `,
+    },
+  });
+}
+
+buildAll()
+  .then(() => buildVercelHandler())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
