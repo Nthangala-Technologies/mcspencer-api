@@ -6,42 +6,64 @@ const router = Router();
 // ── Dashboard stats ──────────────────────────────────────────────────────────
 router.get("/stats", async (_req, res) => {
   try {
-    const [orderStats] = await query<{ count: string; total: string; pending: string; completed: string }>(`
-      SELECT
-        COUNT(*)::text AS count,
-        COALESCE(SUM(total), 0)::text AS total,
-        COUNT(*) FILTER (WHERE status = 'pending')::text AS pending,
-        COUNT(*) FILTER (WHERE status = 'completed')::text AS completed
-      FROM orders
-    `);
-    const [contactStats] = await query<{ count: string; unread: string }>(`
-      SELECT COUNT(*)::text AS count, COUNT(*) FILTER (WHERE status = 'unread')::text AS unread
-      FROM contact_submissions
-    `);
-    const [recentRevenue] = await query<{ amount: string }>(`
-      SELECT COALESCE(SUM(total), 0)::text AS amount FROM orders
-      WHERE created_at > NOW() - INTERVAL '30 days'
-    `);
-    const topProducts = await query<{ product_id: string; views: string }>(`
-      SELECT product_id, COUNT(*)::text AS views
-      FROM analytics_events WHERE event_type = 'view' AND product_id IS NOT NULL
-      GROUP BY product_id ORDER BY COUNT(*) DESC LIMIT 5
-    `);
-    const dailyOrders = await query<{ day: string; count: string; revenue: string }>(`
-      SELECT DATE(created_at)::text AS day, COUNT(*)::text AS count, COALESCE(SUM(total),0)::text AS revenue
-      FROM orders WHERE created_at > NOW() - INTERVAL '14 days'
-      GROUP BY DATE(created_at) ORDER BY day ASC
-    `);
+    const [orderRes, contactRes, revenueRes, topRes, dailyRes] = await Promise.allSettled([
+      query<{ count: string; total: string; pending: string; completed: string }>(`
+        SELECT
+          COUNT(*) AS count,
+          COALESCE(SUM(total), 0) AS total,
+          COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+          COUNT(*) FILTER (WHERE status = 'completed') AS completed
+        FROM orders
+      `),
+      query<{ count: string; unread: string }>(`
+        SELECT
+          COUNT(*) AS count,
+          COUNT(*) FILTER (WHERE status = 'unread') AS unread
+        FROM contact_submissions
+      `),
+      query<{ amount: string }>(`
+        SELECT COALESCE(SUM(total), 0) AS amount FROM orders
+        WHERE created_at > NOW() - INTERVAL '30 days'
+      `),
+      query<{ product_id: string; views: string }>(`
+        SELECT product_id, COUNT(*) AS views
+        FROM analytics_events WHERE event_type = 'view' AND product_id IS NOT NULL
+        GROUP BY product_id ORDER BY COUNT(*) DESC LIMIT 5
+      `),
+      query<{ day: string; count: string; revenue: string }>(`
+        SELECT DATE(created_at) AS day, COUNT(*) AS count, COALESCE(SUM(total), 0) AS revenue
+        FROM orders WHERE created_at > NOW() - INTERVAL '14 days'
+        GROUP BY DATE(created_at) ORDER BY day ASC
+      `),
+    ]);
+
+    const orderStats = orderRes.status === "fulfilled" ? orderRes.value[0] : null;
+    const contactStats = contactRes.status === "fulfilled" ? contactRes.value[0] : null;
+    const revenueStats = revenueRes.status === "fulfilled" ? revenueRes.value[0] : null;
+    const topProducts = topRes.status === "fulfilled" ? topRes.value : [];
+    const dailyOrders = dailyRes.status === "fulfilled" ? dailyRes.value : [];
+
+    if (orderRes.status === "rejected") console.error("stats/orders:", orderRes.reason);
+    if (contactRes.status === "rejected") console.error("stats/contacts:", contactRes.reason);
+    if (revenueRes.status === "rejected") console.error("stats/revenue:", revenueRes.reason);
+    if (topRes.status === "rejected") console.error("stats/topProducts:", topRes.reason);
+    if (dailyRes.status === "rejected") console.error("stats/dailyOrders:", dailyRes.reason);
+
     res.json({
-      orders: { total: +orderStats.count, revenue: +orderStats.total, pending: +orderStats.pending, completed: +orderStats.completed },
-      contacts: { total: +contactStats.count, unread: +contactStats.unread },
-      recentRevenue: +recentRevenue.amount,
-      topProducts,
-      dailyOrders: dailyOrders.map((r) => ({ day: r.day, count: +r.count, revenue: +r.revenue })),
+      orders: {
+        total: +(orderStats?.count ?? 0),
+        revenue: +(orderStats?.total ?? 0),
+        pending: +(orderStats?.pending ?? 0),
+        completed: +(orderStats?.completed ?? 0),
+      },
+      contacts: { total: +(contactStats?.count ?? 0), unread: +(contactStats?.unread ?? 0) },
+      recentRevenue: +(revenueStats?.amount ?? 0),
+      topProducts: topProducts.map((r) => ({ product_id: r.product_id, views: +r.views })),
+      dailyOrders: dailyOrders.map((r) => ({ day: String(r.day).split("T")[0], count: +r.count, revenue: +r.revenue })),
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to fetch stats" });
+    console.error("stats error:", err);
+    res.status(500).json({ error: "Failed to fetch stats", detail: String(err) });
   }
 });
 
