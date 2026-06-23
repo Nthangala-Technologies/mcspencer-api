@@ -1,16 +1,15 @@
 {
   "version": 2,
-  "outputDirectory": "dist",
   "builds": [
     {
-      "src": "dist/handler.mjs",
+      "src": "api/index.ts",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/dist/handler.mjs"
+      "dest": "/api/index.ts"
     }
   ]
 }
