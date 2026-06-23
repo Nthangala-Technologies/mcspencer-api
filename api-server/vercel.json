@@ -3,14 +3,14 @@
   "outputDirectory": "dist",
   "builds": [
     {
-      "src": "api/index.ts",
+      "src": "dist/handler.mjs",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "/dist/handler.mjs"
     }
   ]
 }
