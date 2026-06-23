@@ -121,13 +121,13 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
 }
 
 async function buildVercelHandler() {
-  const distDir = path.resolve(artifactDir, "dist");
+  const apiDir = path.resolve(artifactDir, "api");
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/handler.ts")],
     platform: "node",
     bundle: true,
     format: "esm",
-    outfile: path.resolve(distDir, "handler.mjs"),
+    outfile: path.resolve(apiDir, "bundle.mjs"),
     logLevel: "info",
     define: {
       "process.env.NODE_ENV": '"production"',
