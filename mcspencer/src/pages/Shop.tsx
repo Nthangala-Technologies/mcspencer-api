@@ -1,28 +1,55 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, SlidersHorizontal, X, ChevronDown, ChevronUp,
   LayoutGrid, List, ShoppingCart, ArrowUpDown, Check, RotateCcw,
 } from "lucide-react";
-import { products, categories, Category, Product } from "../lib/data";
+import { categories } from "../lib/data";
+import { useProducts, Product } from "../contexts/ProductsContext";
 import { formatZAR } from "../lib/currency";
 import { ProductCard } from "../components/ProductCard";
 
+declare global { interface Window { adsbygoogle: unknown[] } }
+
+function ShopFluidAd() {
+  const ref = useRef<HTMLModElement>(null);
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="col-span-full w-full my-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mb-1">Advertisement</p>
+      <ins
+        ref={ref}
+        className="adsbygoogle"
+        style={{ display: "block" }}
+        data-ad-format="fluid"
+        data-ad-layout-key="-5x+co-i-89+nz"
+        data-ad-client="ca-pub-8185729929783991"
+        data-ad-slot="8423465246"
+      />
+    </div>
+  );
+}
+
 const MIN_PRICE = 0;
-const MAX_PRICE = 25000;
+const MAX_PRICE = 50000;
 
 const SORT_OPTIONS = [
-  { value: "default",   label: "Featured" },
-  { value: "price-asc", label: "Price: Low → High" },
-  { value: "price-desc",label: "Price: High → Low" },
-  { value: "name-asc",  label: "Name: A → Z" },
-  { value: "name-desc", label: "Name: Z → A" },
+  { value: "default",    label: "Featured" },
+  { value: "price-asc",  label: "Price: Low → High" },
+  { value: "price-desc", label: "Price: High → Low" },
+  { value: "name-asc",   label: "Name: A → Z" },
+  { value: "name-desc",  label: "Name: Z → A" },
 ];
 
 interface Filters {
   search: string;
-  categories: Category[];
+  categories: string[];
   minPrice: number;
   maxPrice: number;
   sort: string;
@@ -70,7 +97,6 @@ function applyFilters(list: Product[], f: Filters): Product[] {
   return out;
 }
 
-// ── Price range slider (two thumbs) ─────────────────────────────────────────
 function PriceRange({
   min, max, onMin, onMax,
 }: {
@@ -124,7 +150,6 @@ function PriceRange({
   );
 }
 
-// ── Collapsible filter section ───────────────────────────────────────────────
 function FilterSection({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -143,19 +168,20 @@ function FilterSection({ title, children, defaultOpen = true }: { title: string;
   );
 }
 
-// ── Sidebar panel (shared desktop + mobile) ──────────────────────────────────
 function FilterPanel({
   filters,
   onChange,
   onReset,
   resultCount,
+  allProducts,
 }: {
   filters: Filters;
   onChange: (patch: Partial<Filters>) => void;
   onReset: () => void;
   resultCount: number;
+  allProducts: Product[];
 }) {
-  const toggleCat = (cat: Category) =>
+  const toggleCat = (cat: string) =>
     onChange({
       categories: filters.categories.includes(cat)
         ? filters.categories.filter((c) => c !== cat)
@@ -164,7 +190,6 @@ function FilterPanel({
 
   return (
     <div className="space-y-0">
-      {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
           <p className="font-black text-[hsl(222,62%,28%)] text-sm">Filters</p>
@@ -180,7 +205,6 @@ function FilterPanel({
         )}
       </div>
 
-      {/* Search */}
       <FilterSection title="Search">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -199,11 +223,10 @@ function FilterPanel({
         </div>
       </FilterSection>
 
-      {/* Category */}
       <FilterSection title="Category">
         <div className="space-y-1.5">
           {categories.map(({ name }) => {
-            const count = products.filter((p) => p.category === name).length;
+            const count = allProducts.filter((p) => p.category === name).length;
             const active = filters.categories.includes(name);
             return (
               <button
@@ -225,7 +248,6 @@ function FilterPanel({
         </div>
       </FilterSection>
 
-      {/* Price range */}
       <FilterSection title="Price Range">
         <PriceRange
           min={filters.minPrice}
@@ -238,7 +260,6 @@ function FilterPanel({
         </p>
       </FilterSection>
 
-      {/* Sort */}
       <FilterSection title="Sort By" defaultOpen={true}>
         <div className="space-y-1">
           {SORT_OPTIONS.map((opt) => (
@@ -261,7 +282,6 @@ function FilterPanel({
   );
 }
 
-// ── Active filter chips ───────────────────────────────────────────────────────
 function ActiveChips({ filters, onChange }: { filters: Filters; onChange: (p: Partial<Filters>) => void }) {
   const chips: { label: string; onRemove: () => void }[] = [];
   if (filters.search) chips.push({ label: `"${filters.search}"`, onRemove: () => onChange({ search: "" }) });
@@ -295,8 +315,8 @@ function ActiveChips({ filters, onChange }: { filters: Filters; onChange: (p: Pa
   );
 }
 
-// ── Main Shop page ────────────────────────────────────────────────────────────
 export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
+  const { products, loading } = useProducts();
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -304,7 +324,7 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
   const patch = useCallback((p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p })), []);
   const reset = useCallback(() => setFilters(defaultFilters), []);
 
-  const results = useMemo(() => applyFilters(products, filters), [filters]);
+  const results = useMemo(() => applyFilters(products, filters), [products, filters]);
 
   React.useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -312,12 +332,11 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
 
   return (
     <div className="min-h-screen bg-muted/30 pt-16 pb-24 md:pb-6">
-      {/* Page header */}
       <div className="bg-[hsl(222,62%,28%)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
           <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight mb-1">Shop</h1>
           <p className="text-white/60 text-sm">
-            {products.length} products across {categories.length} categories
+            {loading ? "Loading products…" : `${products.length} products across ${categories.length} categories`}
           </p>
         </div>
       </div>
@@ -325,19 +344,14 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex gap-8">
 
-          {/* ── Desktop sidebar ── */}
           <aside className="hidden lg:block w-64 flex-shrink-0">
             <div className="bg-white border-2 border-border rounded-2xl p-5 sticky top-24">
-              <FilterPanel filters={filters} onChange={patch} onReset={reset} resultCount={results.length} />
+              <FilterPanel filters={filters} onChange={patch} onReset={reset} resultCount={results.length} allProducts={products} />
             </div>
           </aside>
 
-          {/* ── Main content ── */}
           <div className="flex-1 min-w-0">
-
-            {/* Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              {/* Mobile filter button */}
               <button
                 onClick={() => setMobileOpen(true)}
                 className="lg:hidden flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-border bg-white text-sm font-semibold text-[hsl(222,62%,28%)] hover:border-[hsl(222,62%,28%)] transition-colors"
@@ -356,14 +370,11 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
                 )}
               </button>
 
-              {/* Result count */}
               <p className="text-sm text-muted-foreground hidden lg:block">
                 Showing <span className="font-bold text-foreground">{results.length}</span> of {products.length} products
               </p>
 
-              {/* Right controls */}
               <div className="flex items-center gap-2 ml-auto">
-                {/* Sort (desktop quick) */}
                 <div className="hidden sm:flex items-center gap-2 bg-white border-2 border-border rounded-xl px-3 py-2">
                   <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
                   <select
@@ -377,7 +388,6 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
                   </select>
                 </div>
 
-                {/* View toggle */}
                 <div className="flex items-center border-2 border-border rounded-xl overflow-hidden bg-white">
                   <button
                     onClick={() => setView("grid")}
@@ -397,15 +407,19 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
               </div>
             </div>
 
-            {/* Active chips */}
             {!isDefault(filters) && (
               <div className="mb-4">
                 <ActiveChips filters={filters} onChange={patch} />
               </div>
             )}
 
-            {/* Results */}
-            {results.length === 0 ? (
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="bg-white border-2 border-border rounded-2xl h-80 animate-pulse" />
+                ))}
+              </div>
+            ) : results.length === 0 ? (
               <div className="bg-white border-2 border-border rounded-2xl py-24 text-center">
                 <p className="text-4xl mb-4">🔍</p>
                 <p className="font-bold text-[hsl(222,62%,28%)] mb-1">No products match your filters</p>
@@ -420,18 +434,19 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
             ) : view === "grid" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
                 {results.map((p, i) => (
-                  <motion.div
-                    key={p.id}
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
-                  >
-                    <ProductCard product={p} onAdd={onAddToCart} />
-                  </motion.div>
+                  <React.Fragment key={p.id}>
+                    {i > 0 && i % 6 === 0 && <ShopFluidAd />}
+                    <motion.div
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
+                    >
+                      <ProductCard product={p} onAdd={onAddToCart} />
+                    </motion.div>
+                  </React.Fragment>
                 ))}
               </div>
             ) : (
-              /* List view */
               <div className="space-y-3">
                 {results.map((p, i) => (
                   <ListRow key={p.id} product={p} onAdd={onAddToCart} index={i} />
@@ -442,7 +457,6 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
         </div>
       </div>
 
-      {/* ── Mobile filter drawer ── */}
       <AnimatePresence>
         {mobileOpen && (
           <>
@@ -466,7 +480,7 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-5">
-                <FilterPanel filters={filters} onChange={patch} onReset={reset} resultCount={results.length} />
+                <FilterPanel filters={filters} onChange={patch} onReset={reset} resultCount={results.length} allProducts={products} />
               </div>
               <div className="p-4 border-t border-border">
                 <button
@@ -484,7 +498,6 @@ export function Shop({ onAddToCart }: { onAddToCart: (p: Product) => void }) {
   );
 }
 
-// ── List view row ─────────────────────────────────────────────────────────────
 function ListRow({ product, onAdd, index }: { product: Product; onAdd: (p: Product) => void; index: number }) {
   const [added, setAdded] = useState(false);
   const [, navigate] = useLocation();
