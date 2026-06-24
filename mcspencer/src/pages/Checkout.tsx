@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Lock, Check } from "lucide-react";
+import { ArrowLeft, Lock, Check, AlertTriangle, FileText } from "lucide-react";
 import { CartItem } from "../hooks/useCart";
 import { formatZAR } from "../lib/currency";
+import { API_BASE } from "../contexts/ProductsContext";
 const logoImg = "/logo.jpg";
 
 interface CheckoutProps {
@@ -13,10 +14,22 @@ interface CheckoutProps {
 
 type Step = "contact" | "shipping" | "payment";
 
+type PayMethod = "paypal" | "stripe" | "paystack" | "visa" | "binancepay" | "bitcoin" | null;
+
+const PAYMENT_OPTIONS: { id: PayMethod; label: string; icon: string; color: string }[] = [
+  { id: "paypal",     label: "PayPal",      icon: "https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg",                                              color: "border-blue-200 bg-blue-50" },
+  { id: "stripe",     label: "Stripe",      icon: "https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg",                        color: "border-purple-200 bg-purple-50" },
+  { id: "paystack",   label: "Paystack",    icon: "https://asset.brandfetch.io/idVfYXNMEQ/idFy-YXNMX.png",                                                     color: "border-teal-200 bg-teal-50" },
+  { id: "visa",       label: "Visa / Card", icon: "https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg",                                     color: "border-indigo-200 bg-indigo-50" },
+  { id: "binancepay", label: "Binance Pay", icon: "https://upload.wikimedia.org/wikipedia/commons/1/12/Binance_logo.svg",                                       color: "border-yellow-200 bg-yellow-50" },
+  { id: "bitcoin",    label: "Bitcoin",     icon: "https://upload.wikimedia.org/wikipedia/commons/4/46/Bitcoin.svg",                                            color: "border-orange-200 bg-orange-50" },
+];
+
 export function Checkout({ items, total, onOrderComplete }: CheckoutProps) {
   const [, setLocation] = useLocation();
   const [activeStep, setActiveStep] = useState<Step>("contact");
   const [ordered, setOrdered] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<PayMethod>(null);
 
   const [form, setForm] = useState({
     email: "",
@@ -26,25 +39,17 @@ export function Checkout({ items, total, onOrderComplete }: CheckoutProps) {
     city: "",
     postalCode: "",
     country: "South Africa",
-    cardNumber: "",
-    expiry: "",
-    cvv: "",
-    cardName: "",
   });
 
   const freeShippingThreshold = 5000;
   const shipping = total >= freeShippingThreshold ? 0 : 150;
   const orderTotal = total + shipping;
 
+  const [placing, setPlacing] = useState(false);
+
   const set = (field: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm((p) => ({ ...p, [field]: e.target.value }));
-
-  const formatCard = (v: string) =>
-    v.replace(/\D/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
-
-  const formatExpiry = (v: string) =>
-    v.replace(/\D/g, "").slice(0, 4).replace(/^(\d{2})(\d)/, "$1/$2");
 
   const steps: { key: Step; label: string }[] = [
     { key: "contact", label: "Contact" },
@@ -61,11 +66,19 @@ export function Checkout({ items, total, onOrderComplete }: CheckoutProps) {
           <div className="w-24 h-24 rounded-full bg-[hsl(86,72%,45%)]/15 flex items-center justify-center mx-auto mb-6 border-4 border-[hsl(86,72%,45%)]">
             <Check className="w-12 h-12 text-[hsl(86,72%,45%)]" />
           </div>
-          <h1 className="text-3xl font-black tracking-tight mb-3 text-[hsl(222,62%,28%)]">Order Confirmed!</h1>
+          <h1 className="text-3xl font-black tracking-tight mb-3 text-[hsl(222,62%,28%)]">Order Received!</h1>
           <p className="text-muted-foreground text-base mb-1">Thank you for shopping with McSpencer Enterprise.</p>
-          <p className="text-muted-foreground text-sm mb-10">
-            A confirmation will be sent to <strong>{form.email || "your email"}</strong>.
+          <p className="text-muted-foreground text-sm mb-4">
+            Your order has been sent to our team as an invoice.
           </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-8 text-left">
+            <div className="flex items-start gap-2">
+              <FileText className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-amber-800">
+                Our team will contact <strong>{form.email || "you"}</strong> within <strong>24 hours</strong> to confirm your order and arrange payment.
+              </p>
+            </div>
+          </div>
           <button
             onClick={() => { onOrderComplete(); setLocation("/"); }}
             className="px-10 py-4 rounded-full btn-primary font-black text-base shadow-lg"
@@ -184,59 +197,94 @@ export function Checkout({ items, total, onOrderComplete }: CheckoutProps) {
             </Section>
 
             {/* Payment */}
-            <Section title="Payment details" isActive={activeStep === "payment"} isDone={false} onEdit={undefined}>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-[hsl(86,72%,45%)]/8 rounded-xl px-3 py-2">
-                <Lock className="w-3.5 h-3.5 text-[hsl(86,72%,40%)]" />
-                All transactions are secure and encrypted.
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1.5">Card number</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={form.cardNumber}
-                  onChange={(e) => setForm((p) => ({ ...p, cardNumber: formatCard(e.target.value) }))}
-                  placeholder="1234 5678 9012 3456"
-                  className="w-full border-2 border-border rounded-xl px-4 py-3 text-sm bg-background focus:outline-none focus:border-[hsl(222,62%,28%)] transition-colors font-mono"
-                  data-testid="input-card-number"
-                />
-              </div>
-              <FormField label="Name on card" value={form.cardName} onChange={set("cardName")} placeholder="John Doe" testId="input-card-name" />
-              <div className="grid grid-cols-2 gap-4">
+            <Section title="Payment method" isActive={activeStep === "payment"} isDone={false} onEdit={undefined}>
+              {/* Maintenance notice */}
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1.5">Expiry (MM/YY)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={form.expiry}
-                    onChange={(e) => setForm((p) => ({ ...p, expiry: formatExpiry(e.target.value) }))}
-                    placeholder="MM/YY"
-                    className="w-full border-2 border-border rounded-xl px-4 py-3 text-sm bg-background focus:outline-none focus:border-[hsl(222,62%,28%)] transition-colors font-mono"
-                    data-testid="input-expiry"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1.5">CVV</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={form.cvv}
-                    onChange={(e) => setForm((p) => ({ ...p, cvv: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
-                    placeholder="•••"
-                    className="w-full border-2 border-border rounded-xl px-4 py-3 text-sm bg-background focus:outline-none focus:border-[hsl(222,62%,28%)] transition-colors font-mono"
-                    data-testid="input-cvv"
-                  />
+                  <p className="text-sm font-bold text-amber-800">Online payments under maintenance</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    All payment gateways are currently being set up. Your order will be sent to our team as a quote — we'll contact you within 24 hours to arrange payment.
+                  </p>
                 </div>
               </div>
+
+              {/* Payment option cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {PAYMENT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled
+                    onClick={() => setSelectedPayment(opt.id)}
+                    className={`relative flex items-center gap-3 border-2 rounded-xl px-4 py-3 text-left transition-all opacity-50 cursor-not-allowed ${
+                      selectedPayment === opt.id ? "border-[hsl(222,62%,28%)] bg-blue-50" : opt.color
+                    }`}
+                    data-testid={`payment-option-${opt.id}`}
+                  >
+                    <div className="w-12 h-8 flex items-center justify-center flex-shrink-0 bg-white rounded-lg border border-border/40">
+                      <img
+                        src={opt.icon}
+                        alt={opt.label}
+                        className="max-h-5 max-w-[44px] object-contain"
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      />
+                    </div>
+                    <span className="text-sm font-bold text-[hsl(222,62%,28%)]">{opt.label}</span>
+                    <span className="ml-auto text-[10px] font-black uppercase tracking-wide text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full flex-shrink-0">
+                      Maintenance
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Invoice info */}
+              <div className="flex items-start gap-3 bg-[hsl(222,62%,28%)]/5 border border-[hsl(222,62%,28%)]/15 rounded-xl px-4 py-3">
+                <FileText className="w-4 h-4 text-[hsl(222,62%,28%)] mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-[hsl(222,62%,28%)] leading-relaxed">
+                  <strong>How it works:</strong> Place your order now and our team will send you a formal invoice with payment instructions via email. No upfront payment needed.
+                </p>
+              </div>
+
               <button
-                onClick={() => setOrdered(true)}
-                disabled={!form.cardNumber || !form.expiry || !form.cvv || !form.cardName}
-                className="mt-4 w-full py-4 rounded-full btn-primary font-black text-base disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg"
+                onClick={async () => {
+                  setPlacing(true);
+                  try {
+                    await fetch(`${API_BASE}/orders`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        customer_name: `${form.firstName} ${form.lastName}`.trim(),
+                        customer_email: form.email,
+                        address: form.address,
+                        city: form.city,
+                        postal_code: form.postalCode,
+                        items: items.map((i) => ({
+                          id: i.id,
+                          name: i.name,
+                          quantity: i.quantity,
+                          price: i.price,
+                          category: i.category,
+                        })),
+                        subtotal: total,
+                        delivery_fee: shipping,
+                        total: orderTotal,
+                      }),
+                    });
+                  } catch (_) {}
+                  setPlacing(false);
+                  setOrdered(true);
+                }}
+                disabled={placing}
+                className="mt-2 w-full py-4 rounded-full btn-primary font-black text-base flex items-center justify-center gap-2 shadow-lg disabled:opacity-60"
                 data-testid="button-place-order"
               >
-                <Lock className="w-4 h-4" />
-                Place Order — {formatZAR(orderTotal)}
+                <FileText className="w-4 h-4" />
+                {placing ? "Placing order…" : `Place Order as Invoice — ${formatZAR(orderTotal)}`}
               </button>
+              <p className="text-center text-xs text-muted-foreground">
+                No payment required now. We'll send you an invoice within 24 hours.
+              </p>
             </Section>
           </div>
 
