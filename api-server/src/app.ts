@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { initDb } from "./lib/pgdb.js";
 
 const app: Express = express();
 
@@ -17,6 +18,10 @@ app.use(
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (
+        origin === "https://mcspencerenterprise.co.za" ||
+        origin.endsWith(".mcspencerenterprise.co.za")
+      ) return cb(null, true);
       if (isDev && /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
       if (isDev && (origin.endsWith(".replit.dev") || origin.endsWith(".repl.co"))) return cb(null, true);
       cb(new Error(`CORS: origin ${origin} not allowed`));
@@ -43,6 +48,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
+
+initDb().catch((err) => console.error("[app] initDb failed:", err));
 
 if (process.env["NODE_ENV"] !== "production") {
   import("http-proxy-middleware").then(({ createProxyMiddleware }) => {
