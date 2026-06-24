@@ -29,7 +29,7 @@ const faqs = [
   },
   {
     q: "Can I return a product?",
-    a: "Yes. We offer a 14-day hassle-free return policy. Products must be in their original packaging and unused condition. Simply contact us at support@mcspencer.co.za to initiate a return — we'll arrange a collection at no extra cost.",
+    a: "Yes. We offer a 14-day hassle-free return policy. Products must be in their original packaging and unused condition. Simply contact us at support@mcspencerenterprise.co.za to initiate a return — we'll arrange a collection at no extra cost.",
   },
   {
     q: "What payment methods do you accept?",
@@ -45,7 +45,7 @@ const faqs = [
   },
   {
     q: "Are your car spares compatible with my vehicle?",
-    a: "Each car spare listing includes a compatibility table with popular South African models. If you're unsure, send us your vehicle's year, make and model to support@mcspencer.co.za and we'll confirm before you order.",
+    a: "Each car spare listing includes a compatibility table with popular South African models. If you're unsure, send us your vehicle's year, make and model to support@mcspencerenterprise.co.za and we'll confirm before you order.",
   },
   {
     q: "Do you ship to SADC countries?",
@@ -160,7 +160,7 @@ export function Support() {
                   </span>
                   <div>
                     <p className="font-bold text-sm text-[hsl(222,62%,28%)]">Email Support</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">support@mcspencer.co.za</p>
+                    <a href="mailto:support@mcspencerenterprise.co.za" className="text-xs text-muted-foreground mt-0.5 hover:text-[hsl(222,62%,28%)] transition-colors">support@mcspencerenterprise.co.za</a>
                     <p className="text-[11px] text-[hsl(86,72%,38%)] font-semibold mt-1">Response within 24 hours</p>
                   </div>
                 </div>
