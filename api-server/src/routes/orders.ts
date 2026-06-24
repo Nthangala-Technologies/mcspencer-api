@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/pgdb.js";
+import { sendOrderConfirmation } from "../lib/mailer.js";
 
 const router = Router();
 
@@ -23,6 +24,20 @@ router.post("/", async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending') RETURNING *`,
       [orderNumber, customer_name, customer_email, customer_phone ?? null, address ?? null, city ?? null, postal_code ?? null, JSON.stringify(items), subtotal ?? 0, delivery_fee ?? 0, total ?? 0]
     );
+
+    sendOrderConfirmation({
+      to: customer_email,
+      customerName: customer_name,
+      orderNumber,
+      items: Array.isArray(items) ? items : [],
+      subtotal: subtotal ?? 0,
+      deliveryFee: delivery_fee ?? 0,
+      total: total ?? 0,
+      address: address ?? undefined,
+      city: city ?? undefined,
+      postalCode: postal_code ?? undefined,
+    }).catch((err: Error) => console.error("[mailer] confirmation email failed:", err.message));
+
     res.status(201).json(order);
   } catch (err) {
     console.error(err);
